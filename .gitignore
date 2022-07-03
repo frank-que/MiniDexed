@@ -41,3 +41,6 @@ MiniDexed*
 sdcard
 *.zip
 *.img
+
+# My build script
+my_build.sh
