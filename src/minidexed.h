@@ -42,7 +42,7 @@
 #include "common.h"
 #include "effect_mixer.hpp"
 #include "effect_platervbstereo.h"
-#include "effect_compressor.h"
+// #include "effect_compressor.h"
 
 class CMiniDexed
 #ifdef ARM_ALLOW_MULTI_CORE
@@ -235,9 +235,15 @@ private:
 	bool m_bChannelsSwapped;
 	unsigned m_nQueueSizeFrames;
 
-#ifdef ARM_ALLOW_MULTI_CORE
+#if defined ARM_ALLOW_MULTI_CORE && !defined STEREO_ON_ZERO
 	unsigned m_nActiveTGsLog2;
 	volatile TCoreStatus m_CoreStatus[CORES];
+	volatile unsigned m_nFramesToProcess;
+	float32_t m_OutputLevel[CConfig::ToneGenerators][CConfig::MaxChunkSize];
+#endif
+
+#ifdef STEREO_ON_ZERO
+	unsigned m_nActiveTGsLog2;
 	volatile unsigned m_nFramesToProcess;
 	float32_t m_OutputLevel[CConfig::ToneGenerators][CConfig::MaxChunkSize];
 #endif
