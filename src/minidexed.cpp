@@ -208,7 +208,7 @@ bool CMiniDexed::Initialize (void)
 		return false;
 	}
 
-#ifndef ARM_ALLOW_MULTI_CORE
+#if !defined ARM_ALLOW_MULTI_CORE && !defined STEREO_ON_ZERO
 	m_pSoundDevice->SetWriteFormat (SoundFormatSigned16, 1);	// 16-bit Mono
 #else
 	m_pSoundDevice->SetWriteFormat (SoundFormatSigned16, 2);	// 16-bit Stereo
@@ -779,7 +779,7 @@ std::string CMiniDexed::GetVoiceName (unsigned nTG)
 	return Result;
 }
 
-#ifndef ARM_ALLOW_MULTI_CORE
+#ifdef STEREO_ON_ZERO
 
 void CMiniDexed::ProcessSound (void)
 {
@@ -793,13 +793,83 @@ void CMiniDexed::ProcessSound (void)
 			m_GetChunkTimer.Start ();
 		}
 
-		float32_t SampleBuffer[nFrames];
-		m_pTG[0]->getSamples (SampleBuffer, nFrames);
+		m_nFramesToProcess = nFrames;
 
-		// Convert single float array (mono) to int16 array
-		int16_t tmp_int[nFrames];
-		arm_float_to_q15(SampleBuffer,tmp_int,nFrames);
+		// process the TGs 
+		assert (nFrames <= CConfig::MaxChunkSize);
+		for (unsigned i = 0; i < CConfig::TGsCore1; i++)
+		{
+			assert (m_pTG[i]);
+			m_pTG[i]->getSamples (m_OutputLevel[i], nFrames);
+		}
 
+		//
+		// Audio signal path after tone generators starts here
+		//
+
+		assert (CConfig::ToneGenerators == 1);
+
+		// swap stereo channels if needed
+		uint8_t indexL=0, indexR=1;
+		if (m_bChannelsSwapped)
+		{
+			indexL=1;
+			indexR=0;
+		}
+		
+		// BEGIN TG mixing
+		float32_t tmp_float[nFrames*2];
+		int16_t tmp_int[nFrames*2];
+
+		for (uint8_t i = 0; i < CConfig::ToneGenerators; i++)
+		{
+			tg_mixer->doAddMix(i,m_OutputLevel[i]);
+			reverb_send_mixer->doAddMix(i,m_OutputLevel[i]);
+		}
+		// END TG mixing
+
+		// BEGIN create SampleBuffer for holding audio data
+		float32_t SampleBuffer[2][nFrames];
+		// END create SampleBuffer for holding audio data
+
+		// get the mix of all TGs
+		tg_mixer->getMix(SampleBuffer[indexL], SampleBuffer[indexR]);
+
+		// BEGIN adding reverb
+		if (m_nParameter[ParameterReverbEnable])
+		{
+			float32_t ReverbBuffer[2][nFrames];
+			float32_t ReverbSendBuffer[2][nFrames];
+
+			arm_fill_f32(0.0f, ReverbBuffer[indexL], nFrames);
+			arm_fill_f32(0.0f, ReverbBuffer[indexR], nFrames);
+			arm_fill_f32(0.0f, ReverbSendBuffer[indexR], nFrames);
+			arm_fill_f32(0.0f, ReverbSendBuffer[indexL], nFrames);
+
+			m_ReverbSpinLock.Acquire ();
+
+	        	reverb_send_mixer->getMix(ReverbSendBuffer[indexL], ReverbSendBuffer[indexR]);
+			reverb->doReverb(ReverbSendBuffer[indexL],ReverbSendBuffer[indexR],ReverbBuffer[indexL], ReverbBuffer[indexR],nFrames);
+
+			// scale down and add left reverb buffer by reverb level 
+			arm_scale_f32(ReverbBuffer[indexL], reverb->get_level(), ReverbBuffer[indexL], nFrames);
+			arm_add_f32(SampleBuffer[indexL], ReverbBuffer[indexL], SampleBuffer[indexL], nFrames);
+			// scale down and add right reverb buffer by reverb level 
+			arm_scale_f32(ReverbBuffer[indexR], reverb->get_level(), ReverbBuffer[indexR], nFrames);
+			arm_add_f32(SampleBuffer[indexR], ReverbBuffer[indexR], SampleBuffer[indexR], nFrames);
+
+			m_ReverbSpinLock.Release ();
+		}
+		// END adding reverb
+
+		// Convert dual float array (left, right) to single int16 array (left/right)
+		for(uint16_t i=0; i<nFrames;i++)
+		{
+			tmp_float[i*2]=SampleBuffer[indexL][i];
+			tmp_float[(i*2)+1]=SampleBuffer[indexR][i];
+		}
+		arm_float_to_q15(tmp_float,tmp_int,nFrames*2);
+			
 		if (m_pSoundDevice->Write (tmp_int, sizeof(tmp_int)) != (int) sizeof(tmp_int))
 		{
 			LOGERR ("Sound data dropped");
@@ -812,7 +882,9 @@ void CMiniDexed::ProcessSound (void)
 	}
 }
 
-#else	// #ifdef ARM_ALLOW_MULTI_CORE
+#endif
+
+#if defined ARM_ALLOW_MULTI_CORE && !defined STEREO_ON_ZERO
 
 void CMiniDexed::ProcessSound (void)
 {
@@ -931,6 +1003,41 @@ void CMiniDexed::ProcessSound (void)
 		}
 		else
 			arm_fill_q15(0, tmp_int, nFrames * 2);
+
+		if (m_pSoundDevice->Write (tmp_int, sizeof(tmp_int)) != (int) sizeof(tmp_int))
+		{
+			LOGERR ("Sound data dropped");
+		}
+
+		if (m_bProfileEnabled)
+		{
+			m_GetChunkTimer.Stop ();
+		}
+	}
+}
+
+#endif
+
+#if !defined ARM_ALLOW_MULTI_CORE && !defined STEREO_ON_ZERO
+
+void CMiniDexed::ProcessSound (void)
+{
+	assert (m_pSoundDevice);
+
+	unsigned nFrames = m_nQueueSizeFrames - m_pSoundDevice->GetQueueFramesAvail ();
+	if (nFrames >= m_nQueueSizeFrames/2)
+	{
+		if (m_bProfileEnabled)
+		{
+			m_GetChunkTimer.Start ();
+		}
+
+		float32_t SampleBuffer[nFrames];
+		m_pTG[0]->getSamples (SampleBuffer, nFrames);
+
+		// Convert single float array (mono) to int16 array
+		int16_t tmp_int[nFrames];
+		arm_float_to_q15(SampleBuffer,tmp_int,nFrames);
 
 		if (m_pSoundDevice->Write (tmp_int, sizeof(tmp_int)) != (int) sizeof(tmp_int))
 		{
