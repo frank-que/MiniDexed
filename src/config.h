@@ -39,7 +39,12 @@ public:
 	static const unsigned ToneGenerators = TGsCore1 + 2*TGsCore23;
 #endif
 
-#if RASPPI == 1
+#ifdef STEREO_ON_ZERO
+	static const unsigned TGsCore1 = 1;		// process 1 TGs on core 1
+	static const unsigned TGsCore23 = 0;
+#endif
+
+#if RASPPI == 1 || !defined STEREO_ON_ZERO
 	static const unsigned MaxNotes = 8;		// polyphony
 #else
 	static const unsigned MaxNotes = 16;
