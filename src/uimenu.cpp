@@ -62,7 +62,7 @@ const CUIMenu::TMenuItem CUIMenu::s_TGMenu[] =
 	{"Voice",	EditProgramNumber},
 	{"Bank",	EditVoiceBankNumber},
 	{"Volume",	EditTGParameter,	0,	CMiniDexed::TGParameterVolume},
-#ifdef ARM_ALLOW_MULTI_CORE
+#if defined ARM_ALLOW_MULTI_CORE || defined STEREO_ON_ZERO
 	{"Pan",		EditTGParameter,	0,	CMiniDexed::TGParameterPan},
 #endif
 	{"Reverb-Send",	EditTGParameter,	0,	CMiniDexed::TGParameterReverbSend},
@@ -100,7 +100,7 @@ const CUIMenu::TMenuItem CUIMenu::s_EditPortamentoMenu[] =
 	{0}
 };
 
-#ifdef ARM_ALLOW_MULTI_CORE
+#if defined ARM_ALLOW_MULTI_CORE || defined STEREO_ON_ZERO
 
 const CUIMenu::TMenuItem CUIMenu::s_ReverbMenu[] =
 {
